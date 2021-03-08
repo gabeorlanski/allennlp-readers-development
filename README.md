@@ -6,3 +6,7 @@ Created from the [AllenNLP starting template repository](https://github.com/alle
 
 ## To-Do:
 
+- **[SuperGLUE Tasks:](https://super.gluebenchmark.com/tasks)**
+  - [ReCoRD](https://sheng-z.github.io/ReCoRD-explorer/) ([Issue](https://github.com/allenai/allennlp/issues/4995))
+- **[CodeXGLUE Tasks:](https://github.com/microsoft/CodeXGLUE)**
+  - [CodeSearchNet](https://github.com/github/CodeSearchNet)
