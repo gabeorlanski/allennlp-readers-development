@@ -1,4 +1,6 @@
-### Note: This repository is not directly affiliated with the Allen Institute for AI.
+### Note: This repository is not affiliated with the Allen Institute for AI nor AllenNLP.
+This repo is just for me to play around + work on developing stuff that may end up in the main AllenNLP repo.
+ 
 
 # Dataset Reader Development Repository for AllenNLP
 
