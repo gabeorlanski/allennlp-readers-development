@@ -5,7 +5,7 @@ al. 2018).
 Reader Implemented by Gabriel Orlanski
 """
 
-from typing import Dict, List, Optional, Sequence, Iterable, Union
+from typing import Dict, List, Optional, Sequence, Iterable, Union, Tuple
 import itertools
 import logging
 import warnings
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["RecordTaskReader"]
 
 
-@DatasetReader.register("superglue-record")
+@DatasetReader.register("superglue_record")
 class RecordTaskReader(DatasetReader):
     """
     Reader for Reading Comprehension with Commonsense Reasoning(ReCoRD) task from SuperGLUE. The
@@ -93,52 +93,106 @@ class RecordTaskReader(DatasetReader):
             dataset = json.load(fp)['data']
         logger.info(f"Found {len(dataset)} examples from '{file_path}'")
 
+        # Keep track of certain stats while reading the file
+        # multi_instance_passages_count: The number of questions with more than
+        #   one instance. Can happen because there is multiple queries for a
+        #   single passage.
+        # instances_found_count: The total number of instances found/yielded.
+        multi_instance_passages_count = 0
+        instances_found_count = 0
         # Iterate through every example from the ReCoRD data file.
         for example in dataset:
             example: Dict
-            # Get the data from the example dict. Wrap in a Try block in order
-            # to log any errors that come up. If raise_errors is enabled, it
-            # will raise them.
-            try:
-                # Get the passage dict from the example, it has text and entities
-                passage_dict: Dict = example['passage']
-                passage_text: str = passage_dict['text']
 
-                # Entities are stored as a dict with the keys 'start' and 'end' for
-                # their respective char indices.
-                passage_entities = [self.get_span_from_text(passage_text, e['start'], e['end'])
-                                    for e in passage_dict['entities']]
-                logger.debug(f"Found {len(passage_entities)} entities in {example['id']}")
+            # Get the list of instances for the current example
+            example_instances = self.get_instances_from_example(example)
 
-                # Get the queries from the example dict
-                queries: List = example['qas']
-            except KeyError as e:
-                logger.error(f"{example['id']} raised error '{e}'")
-                if self._raise_errors:
-                    raise e
-                continue
+    def get_instances_from_example(self, example: Dict) -> List[Instance]:
+        # Get the passage dict from the example, it has text and
+        # entities
+        passage_dict: Dict = example['passage']
+        passage_text: str = passage_dict['text']
 
+        # Entities are stored as a dict with the keys 'start' and 'end'
+        # for their respective char indices.
+        passage_entities = self.get_spans_from_text(passage_text,
+                                                    example['entities'])
+        logger.debug(f"Found {len(passage_entities)} entities in {example['id']}")
+
+        # Get the queries from the example dict
+        queries: List = example['qas']
+
+    def tokenize_slice(self,
+                       text: str,
+                       start: int,
+                       end: int) -> Iterable[Token]:
+        """
+        Get + tokenize a span from a source text.
+
+        *Originally from the `transformer_squad.py`*
+
+        Args:
+            text: `str`
+                The text to draw from.
+            start: `int`
+                The start index for the span.
+            end: `int`
+                The end index for the span. Assumed that this is inclusive.
+
+        Returns: `Iterable[Token]`
+            List of tokens for the retrieved span.
+        """
+        text_to_tokenize = text[start:end]
+
+        # Check if this is the start of the text. If the start is >= 0, check
+        # for a preceding space. If it exists, then we need to tokenize a
+        # special way because of a bug with RoBERTa tokenizer.
+        if start - 1 >= 0 and text[start - 1].isspace():
+
+            # Per the original tokenize_slice function, you need to add a
+            # garbage token before the actual text you want to tokenize so that
+            # the tokenizer does not add a beginning of sentence token.
+            prefix = "a "
+
+            # Tokenize the combined prefix and text
+            wordpieces = self._tokenizer.tokenize(prefix + text_to_tokenize)
+
+            # Go through each wordpiece in the tokenized wordpieces.
+            for wordpiece in wordpieces:
+
+                # Because we added the garbage prefix before tokenize, we need
+                # to adjust the idx such that it accounts for this. Therefore we
+                # subtract the length of the prefix from each token's idx.
+                if wordpiece.idx is not None:
+                    wordpiece.idx -= len(prefix)
+
+            # We do not want the garbage token, so we return all but the first
+            # token.
+            return wordpieces[1:]
+        else:
+
+            # Do not need any sort of prefix, so just return all of the tokens.
+            return self._tokenizer.tokenize(text_to_tokenize)
 
     @staticmethod
-    def get_span_from_text(text: str,
-                           start: int,
-                           end: int) -> str:
+    def get_spans_from_text(text: str,
+                            spans: List[Tuple[int, int]]) -> List[str]:
         """
         Helper function to get a span from a string
 
         Args:
             text: `str`
                 The source string
-            start: `int`
-                The starting index
-            end: `int`
-                The end index. It is INCLUSIVE.
+            spans: `List[Tuple[int,int]]`
+                List of start and end indices for spans.
 
-        Returns: `str`
+                Assumes that the end index is inclusive. Therefore, for start
+                index `i` and end index `j`, retrieves the span at `text[i:j+1]`.
+
+        Returns: `List[str]`
             The extracted string from text.
-
         """
-        return ''.join(text[start:end])
+        return [text[start:end + 1] for start, end in spans]
 
     @overrides
     def text_to_instance(
