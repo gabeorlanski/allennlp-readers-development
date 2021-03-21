@@ -112,3 +112,9 @@ def setupLoggers(name: str, log_path: str = None, verbose: bool = False,
     issue_logger.propagate = False
 
     return logger, issue_logger
+
+
+def getBothLoggers():
+    logger = logging.getLogger(os.environ.get('LOGGER_NAME', __name__))
+    issue_logger = logging.getLogger(os.environ.get('ISSUE_LOGGER_NAME', __name__))
+    return logger, issue_logger

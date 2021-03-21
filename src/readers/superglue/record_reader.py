@@ -12,6 +12,7 @@ import warnings
 from pathlib import Path
 
 from overrides import overrides
+from src.util.log_util import getBothLoggers
 
 from allennlp.common.checks import ConfigurationError
 from allennlp.common.file_utils import cached_path
@@ -23,9 +24,10 @@ from allennlp.data.token_indexers import TokenIndexer, SingleIdTokenIndexer
 from allennlp.data.tokenizers import Token, Tokenizer, SpacyTokenizer
 import json
 
-logger = logging.getLogger(__name__)
+logger, _ = getBothLoggers()
 
 __all__ = ['RecordTaskReader']
+
 
 @DatasetReader.register("superglue_record")
 class RecordTaskReader(DatasetReader):
@@ -97,18 +99,44 @@ class RecordTaskReader(DatasetReader):
         logger.info(f"Found {len(dataset)} examples from '{file_path}'")
 
         # Keep track of certain stats while reading the file
-        # multi_instance_passages_count: The number of questions with more than
+        # examples_multiple_instance_count: The number of questions with more than
         #   one instance. Can happen because there is multiple queries for a
         #   single passage.
-        # instances_found_count: The total number of instances found/yielded.
-        multi_instance_passages_count = 0
-        instances_found_count = 0
+        # passages_yielded: The total number of instances found/yielded.
+        examples_multiple_instance_count = 0
+        passages_yielded = 0
+
         # Iterate through every example from the ReCoRD data file.
         for example in dataset:
             example: Dict
 
             # Get the list of instances for the current example
-            example_instances = self.get_instances_from_example(example)
+            instances_for_example = self.get_instances_from_example(example)
+
+            # Keep track of number of instances for this specific example that
+            # have been yielded. Since it instances_for_example is a generator, we
+            # do not know its length. To address this, we create an counter int.
+            instance_count = 0
+
+            # Iterate through the instances and yield them.
+            for instance in instances_for_example:
+                yield instance
+                instance_count += 1
+
+            # Check if there was more than one instance for this example. If
+            # there was we increase examples_multiple_instance_count by 1.
+            # Otherwise we increase by 0.
+            examples_multiple_instance_count += 1 if instance_count > 1 else 0
+
+            passages_yielded += 1
+
+        # Log pertinent information.
+        if passages_yielded:
+            logger.info(f"{examples_multiple_instance_count}/{passages_yielded} "
+                        f"({examples_multiple_instance_count / passages_yielded * 100:.2f}%) "
+                        f"examples had more than one instance")
+        else:
+            logger.warning(f"Could not find any instances in '{file_path}'")
 
     def get_instances_from_example(self, example: Dict) -> Iterable[Instance]:
         """
@@ -325,8 +353,6 @@ class RecordTaskReader(DatasetReader):
         # attributes from `query_field` rather than continuously indexing
         # `fields`.
         fields['question_with_context'] = query_field
-
-
 
         raise NotImplementedError(
             "'RecordTaskReader.text_to_instance' is not yet implemented"

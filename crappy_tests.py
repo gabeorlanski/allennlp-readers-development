@@ -27,16 +27,19 @@ def debugReader(file_path: Path, main_logger: logging.Logger):
 @plac.annotations(
     test_name=plac.Annotation('Test to run for debugging', choices=['Reader']),
     reader_file=plac.Annotation('Dataset file to read with the Reader.', kind='option', type=str),
+    debug=plac.Annotation("Enable Debug", kind='flag', abbrev='d'),
+    verbose=plac.Annotation("Enable verbose", kind='flag', abbrev='v')
 )
-def main(test_name: str, reader_file: str = None) -> None:
-    main_logger, issue_logger = setupLoggers(test_name, debug=True, verbose=True)
+def main(test_name: str, reader_file: str = None, debug: bool = False,
+         verbose: bool = False) -> None:
+    main_logger, issue_logger = setupLoggers(test_name, debug=debug, verbose=verbose)
     main_logger.info(f"Starting {test_name}")
 
     if test_name == "Reader":
         assert reader_file is not None
 
         # Assuming for my sanity that data is stored in a directory called 'data'
-        debugReader(Path('data', reader_file),main_logger)
+        debugReader(Path('data', reader_file), main_logger)
 
 
 if __name__ == '__main__':
