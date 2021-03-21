@@ -5,7 +5,7 @@ al. 2018).
 Reader Implemented by Gabriel Orlanski
 """
 
-from typing import Dict, List, Optional, Sequence, Iterable, Union, Tuple
+from typing import Dict, List, Optional, Sequence, Iterable, Union, Tuple, Any
 import itertools
 import logging
 import warnings
@@ -25,11 +25,11 @@ import json
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["RecordTaskReader"]
-
+__all__ = ['RecordTaskReader']
 
 @DatasetReader.register("superglue_record")
 class RecordTaskReader(DatasetReader):
+    # TODO: Update and improve this docstring
     """
     Reader for Reading Comprehension with Commonsense Reasoning(ReCoRD) task from SuperGLUE. The
     task is detailed in the paper ReCoRD: Bridging the Gap between Human and Machine Commonsense
@@ -38,7 +38,7 @@ class RecordTaskReader(DatasetReader):
 
     The reader reads a JSON file in the format from
     sheng-z.github.io/ReCoRD-explorer/dataset-readme.txt
-    
+
 
     # Parameters
 
@@ -63,11 +63,13 @@ class RecordTaskReader(DatasetReader):
 
     """
 
+    # TODO: Expand on init args and add correct tokenizers
     def __init__(self,
                  tokenizer: Tokenizer = None,
                  token_indexers: Dict[str, TokenIndexer] = None,
-                 passage_length_limit: int = None,
-                 question_length_limit: int = None,
+                 length_limit: int = 384,
+                 question_length_limit: int = 64,
+                 stride: int = 128,
                  raise_errors: bool = False,
                  **kwargs) -> None:
         """
@@ -78,8 +80,9 @@ class RecordTaskReader(DatasetReader):
         # Save the values passed to __init__ to protected attributes
         self._tokenizer = tokenizer or SpacyTokenizer()
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
-        self._passage_length_limit = passage_length_limit
-        self._question_length_limit = question_length_limit
+        self._length_limit = length_limit
+        self._query_len_limit = question_length_limit
+        self._stride = stride
         self._raise_errors = raise_errors
 
     @overrides
@@ -107,20 +110,59 @@ class RecordTaskReader(DatasetReader):
             # Get the list of instances for the current example
             example_instances = self.get_instances_from_example(example)
 
-    def get_instances_from_example(self, example: Dict) -> List[Instance]:
+    def get_instances_from_example(self, example: Dict) -> Iterable[Instance]:
+        """
+        Helper function to get instances from an example.
+
+        Much of this comes from `transformer_squad.make_instances`
+        Args:
+            example: `Dict[str,Any]`
+                The example dict.
+
+        Yields: `Iterable[Instance]`
+            The instances for each example
+        """
         # Get the passage dict from the example, it has text and
         # entities
+        example_id: str = example['id']
         passage_dict: Dict = example['passage']
         passage_text: str = passage_dict['text']
 
-        # Entities are stored as a dict with the keys 'start' and 'end'
-        # for their respective char indices.
-        passage_entities = self.get_spans_from_text(passage_text,
-                                                    example['entities'])
-        logger.debug(f"Found {len(passage_entities)} entities in {example['id']}")
+        # Tokenize the passage
+        tokenized_passage: Iterable[Token] = self.tokenize_str(passage_text)
+
+        # TODO: Determine what to do with entities. Superglue marks them
+        #   explicitly as input (https://arxiv.org/pdf/1905.00537.pdf)
+
+        # # Entities are stored as a dict with the keys 'start' and 'end'
+        # # for their respective char indices. We use the helper function
+        # # tokenize_slice to get these spans and tokenize them.
+        # passage_entities = [self.tokenize_slice(passage_text, start, end)
+        #                     for start, end in passage_dict['entities']]
+        # logger.debug(f"Found {len(passage_entities)} entities in {example['id']}")
 
         # Get the queries from the example dict
         queries: List = example['qas']
+        logger.debug(f"{len(queries)} queries for example {example_id}")
+
+        # Tokenize and get the context windows for each queries
+        for query in queries:
+            query: Dict
+
+            # Create the additional metadata dict that will be passed w/ extra
+            # data for each query. We store the question & query ids, all
+            # answers, and other data following `transformer_qa`.
+            additional_metadata = {
+                "id"        : query['id'],
+                "example_id": example_id,
+            }
+
+            # Tokenize, and truncate, the query based on the max set in
+            # `__init__`
+            tokenized_query = self.tokenize_str(query['query'])[:self._query_len_limit]
+
+            # Calculate the remaining space for the context w/ the length of the
+            # question special tokens.
 
     def tokenize_slice(self,
                        text: str,
@@ -174,6 +216,57 @@ class RecordTaskReader(DatasetReader):
             # Do not need any sort of prefix, so just return all of the tokens.
             return self._tokenizer.tokenize(text_to_tokenize)
 
+    def tokenize_str(self,
+                     text: str) -> Iterable[Token]:
+        """
+        Helper method to tokenize a string.
+
+        Adapted from the `transformer_squad.make_instances`
+
+        Args:
+            text: `str`
+                The string to tokenize.
+
+        Returns: `Iterable[Tokens]`
+            The resulting tokens.
+
+        """
+
+        # We need to keep track of the current token index so that we can update
+        # the results from self.tokenize_slice such that they reflect their
+        # actual position in the string rather than their position in the slice
+        # passed to tokenize_slice. Also used to construct the slice.
+        token_index = 0
+
+        # Create the output list (can be any iterable) that will store the
+        # tokens we found.
+        tokenized_str = []
+
+        # Helper function to update the `idx` and add every wordpiece in the
+        # `tokenized_slice` to the `tokenized_str`.
+        def add_wordpieces(tokenized_slice: Iterable[Token]) -> None:
+            for wordpiece in tokenized_slice:
+                if wordpiece.idx is not None:
+                    wordpiece.idx += token_index
+                tokenized_str.append(wordpiece)
+
+        # Iterate through every character and their respective index in the text
+        # to create the slices to tokenize.
+        for i, c in enumerate(text):
+            i: int
+            c: str
+
+            # Check if the current character is a space. If it is, we tokenize
+            # the slice of `text` from `token_index` to `i`.
+            if c.isspace():
+                add_wordpieces(self.tokenize_slice(text, token_index, i))
+                token_index = i + 1
+
+        # Add the end slice that is not collected by the for loop.
+        add_wordpieces(self.tokenize_slice(text, token_index, len(text)))
+
+        return tokenized_str
+
     @staticmethod
     def get_spans_from_text(text: str,
                             spans: List[Tuple[int, int]]) -> List[str]:
@@ -197,7 +290,13 @@ class RecordTaskReader(DatasetReader):
     @overrides
     def text_to_instance(
             self,
-            passage: List[str],
+            query: str,
+            tokenized_query: List[Token],
+            passage: str,
+            tokenized_passage: List[Token],
+            answers: List[str],
+            token_answer_spans: Optional[Tuple[int, int]] = None,
+            additional_metadata: Dict[str, Any] = None
     ) -> Instance:
         """
         TODO: Needs to Return
@@ -207,6 +306,27 @@ class RecordTaskReader(DatasetReader):
             answer_span: Optional[torch.IntTensor]
             metadata: Optional[List[Dict[str, Any]]]
         """
+        fields = {}
+
+        # Create the query field from the tokenized question and context. Use
+        # `self._tokenizer.add_special_tokens` function to add the necessary
+        # special tokens to the query.
+        query_field = TextField(self._tokenizer.add_special_tokens(
+            # The `add_special_tokens` function automatically adds in the
+            # separation token to mark the separation between the two lists of
+            # tokens. Therefore, we can create the query field WITH context
+            # through passing them both as arguments.
+            tokenized_query,
+            tokenized_passage
+        ), self._token_indexers)
+
+        # Add the query field to the fields dict that will be outputted as an
+        # instance. Do it here rather than assign above so that we can use
+        # attributes from `query_field` rather than continuously indexing
+        # `fields`.
+        fields['question_with_context'] = query_field
+
+
 
         raise NotImplementedError(
             "'RecordTaskReader.text_to_instance' is not yet implemented"
