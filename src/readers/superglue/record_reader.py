@@ -13,15 +13,16 @@ from pathlib import Path
 
 from overrides import overrides
 from src.util.log_util import getBothLoggers
-
+from allennlp.common.util import sanitize_wordpiece
 from allennlp.common.checks import ConfigurationError
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.dataset_readers.dataset_utils import to_bioul
-from allennlp.data.fields import TextField, SequenceLabelField, Field, MetadataField
+from allennlp.data.fields import MetadataField, TextField, SpanField, IndexField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import TokenIndexer, SingleIdTokenIndexer
 from allennlp.data.tokenizers import Token, Tokenizer, SpacyTokenizer
+from allennlp_models.rc.dataset_readers.utils import char_span_to_token_span
 import json
 
 logger, _ = getBothLoggers()
@@ -138,7 +139,9 @@ class RecordTaskReader(DatasetReader):
         else:
             logger.warning(f"Could not find any instances in '{file_path}'")
 
-    def get_instances_from_example(self, example: Dict) -> Iterable[Instance]:
+    def get_instances_from_example(self,
+                                   example: Dict,
+                                   always_add_answer_span: bool = False) -> Iterable[Instance]:
         """
         Helper function to get instances from an example.
 
@@ -157,7 +160,7 @@ class RecordTaskReader(DatasetReader):
         passage_text: str = passage_dict['text']
 
         # Tokenize the passage
-        tokenized_passage: Iterable[Token] = self.tokenize_str(passage_text)
+        tokenized_passage: List[Token] = self.tokenize_str(passage_text)
 
         # TODO: Determine what to do with entities. Superglue marks them
         #   explicitly as input (https://arxiv.org/pdf/1905.00537.pdf)
@@ -189,8 +192,79 @@ class RecordTaskReader(DatasetReader):
             # `__init__`
             tokenized_query = self.tokenize_str(query['query'])[:self._query_len_limit]
 
-            # Calculate the remaining space for the context w/ the length of the
-            # question special tokens.
+            # Calculate where the context needs to start and how many tokens we have
+            # for it. This is due to the limit on the number of tokens that a
+            # transformer can use because they have quadratic memory usage. But if
+            # you are reading this code, you probably know that.
+            space_for_context = (
+                    self._length_limit
+                    - len(list(tokenized_query))
+
+                    # Used getattr so I can test without having to load a
+                    # transformer model.
+                    - len(getattr(self._tokenizer, 'sequence_pair_start_tokens', []))
+                    - len(getattr(self._tokenizer, 'sequence_pair_mid_tokens', []))
+                    - len(getattr(self._tokenizer, 'sequence_pair_end_tokens', []))
+            )
+
+            # Check if answers exist for this query. We assume that there are no
+            # answers for this query, and set the start and end index for the
+            # answer span to -1.
+            answers = query.get('answers', [])
+            if not answers:
+                logger.warning(f"Skipping {query['id']}, no answers")
+                continue
+
+            # Get the token offsets for the answers for this current passage.
+            answer_token_start, answer_token_end = (-1, -1)
+            for offsets in self.get_answer_offsets(tokenized_passage, answers):
+                if offsets != (-1, -1):
+                    answer_token_start, answer_token_end = offsets
+                    break
+
+            # Go through the context and find the window that has the answer in it.
+            stride_start = 0
+
+            while True:
+                tokenized_context_window = tokenized_passage[stride_start:]
+                tokenized_context_window = tokenized_context_window[:space_for_context]
+
+                # Get the token offsets w.r.t the current window.
+                window_token_answer_span = (
+                    answer_token_start - stride_start,
+                    answer_token_end - stride_start,
+                )
+                if any(i < 0 or i >= len(tokenized_context_window) for i in
+                       window_token_answer_span):
+                    # The answer is not contained in the window.
+                    window_token_answer_span = None
+
+                if (
+                        # not self.skip_impossible_questions
+                        window_token_answer_span is not None
+                ):
+                    # The answer WAS found in the context window, and thus we
+                    # can make an instance for the answer.
+                    instance = self.text_to_instance(
+                        query['query'],
+                        tokenized_query,
+                        passage_text,
+                        tokenized_context_window,
+                        answers=answers,
+                        token_answer_span=window_token_answer_span,
+                        additional_metadata=additional_metadata,
+                        always_add_answer_span=always_add_answer_span,
+                    )
+                    yield instance
+
+                stride_start += space_for_context
+
+                # If we have reached the end of the passage, stop.
+                if stride_start >= len(tokenized_passage):
+                    break
+
+                # I am not sure what this does...but it is here?
+                stride_start -= self._stride
 
     def tokenize_slice(self,
                        text: str,
@@ -245,7 +319,7 @@ class RecordTaskReader(DatasetReader):
             return self._tokenizer.tokenize(text_to_tokenize)
 
     def tokenize_str(self,
-                     text: str) -> Iterable[Token]:
+                     text: str) -> List[Token]:
         """
         Helper method to tokenize a string.
 
@@ -323,16 +397,13 @@ class RecordTaskReader(DatasetReader):
             passage: str,
             tokenized_passage: List[Token],
             answers: List[str],
-            token_answer_spans: Optional[Tuple[int, int]] = None,
-            additional_metadata: Dict[str, Any] = None
+            token_answer_span: Optional[Tuple[int, int]] = None,
+            additional_metadata: Optional[Dict[str, Any]] = None,
+            always_add_answer_span: Optional[bool] = False,
     ) -> Instance:
         """
-        TODO: Needs to Return
-            question_with_context: Dict[str, Dict[str, torch.LongTensor]]
-            context_span: torch.IntTensor
-            cls_index: Optional[torch.LongTensor]
-            answer_span: Optional[torch.IntTensor]
-            metadata: Optional[List[Dict[str, Any]]]
+        A lot of this comes directly from the `transformer_squad.text_to_instance`
+        TODO: Improve docs
         """
         fields = {}
 
@@ -354,6 +425,104 @@ class RecordTaskReader(DatasetReader):
         # `fields`.
         fields['question_with_context'] = query_field
 
-        raise NotImplementedError(
-            "'RecordTaskReader.text_to_instance' is not yet implemented"
+        # Calculate the index that marks the start of the context.
+        start_of_context = (
+                + len(tokenized_query)
+                # Used getattr so I can test without having to load a
+                # transformer model.
+                - len(getattr(self._tokenizer, 'sequence_pair_start_tokens', []))
+                - len(getattr(self._tokenizer, 'sequence_pair_mid_tokens', []))
         )
+
+        # make the answer span
+        if token_answer_span is not None:
+            assert all(i >= 0 for i in token_answer_span)
+            assert token_answer_span[0] <= token_answer_span[1]
+
+            fields["answer_span"] = SpanField(
+                token_answer_span[0] + start_of_context,
+                token_answer_span[1] + start_of_context,
+                query_field,
+            )
+        # make the context span, i.e., the span of text from which possible answers should be drawn
+        fields["context_span"] = SpanField(
+            start_of_context, start_of_context + len(tokenized_passage) - 1, query_field
+        )
+
+        # make the metadata
+        metadata = {
+            "question"       : query,
+            "question_tokens": tokenized_query,
+            "context"        : passage,
+            "context_tokens" : tokenized_passage,
+            "answers"        : answers or [],
+        }
+        if additional_metadata is not None:
+            metadata.update(additional_metadata)
+        fields["metadata"] = MetadataField(metadata)
+
+        return Instance(fields)
+
+    # TODO: Optimize because python while loops are SLOW
+    def get_answer_offsets(self,
+                           tokenized_passage: List[Token],
+                           answers: List[Dict]) -> List[Tuple[int, int]]:
+        out = []
+
+        # Answers are ordered by which shows up first in the text (I hope).
+        # Therefore, we keep track of what token we are on to avoid
+        # checking the same tokens more than once.
+        current_token_index = 0
+        current_answer = 0
+
+        while current_answer < len(answers):
+            answer: Dict = answers[current_answer]
+
+            # We tokenize the actual answer text. This is then used
+            # immediately to help locate its start and end indices in
+            # the tokenized passage. While ReCoRD does provide a start
+            # and end index, it is only for the string itself rather
+            # than the tokens
+            tokenized_answer = self.tokenize_str(answer['text'])
+
+            # Set a separate tracker for the current index.
+            token_index = current_token_index
+
+            # Rather than having this in the main check, have it as a sub loop
+            # so that we can still add the -1 indices if the answers could not
+            # be found. Does produce an issue where one malformed answer causes
+            # the rest to be skipped. That is where `token_index` comes in. W/ a
+            # separate tracker, we can pass on updating `current_token_index` if
+            # we could not find the answer. This allows us to combat malformed
+            # answers.
+            found_answer = False
+            while token_index < len(tokenized_passage):
+
+                if tokenized_passage[token_index] == tokenized_answer[0]:
+                    valid_answer = True
+                    for i in range(1, len(tokenized_answer)):
+
+                        # If there are no more tokens left in the passage,
+                        # or the answer and the current token no longer match.
+                        if (
+                                token_index + i > len(tokenized_passage)
+                                or tokenized_passage[token_index + i] != tokenized_answer[i]
+                        ):
+                            valid_answer = False
+                            break
+                    if valid_answer:
+                        token_index += len(tokenized_answer)
+                        found_answer = True
+                        break
+                token_index += 1
+
+            # We found an answer, add it to the output.
+            if found_answer:
+                current_token_index = token_index + 1
+                out.append((token_index - len(tokenized_answer), token_index))
+            else:
+                out.append((-1, -1))
+
+            current_answer += 1
+
+        return out
