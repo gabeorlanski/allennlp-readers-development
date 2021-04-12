@@ -154,3 +154,18 @@ class TestRecordReader:
 
         assert len(result[1]['question_with_context']) == whitespace_reader._length_limit
         assert '@placeholder' in [t.text for t in result[1]['question_with_context'].tokens]
+
+    def test_get_instances_from_example_fields(self, whitespace_reader, tokenized_passage,
+                                               example_basic):
+        results = list(whitespace_reader.get_instances_from_example(example_basic))
+        expected_keys = [
+            "question_with_context",
+            "context_span",
+            # "cls_index",
+            "answer_span",
+            "metadata"
+        ]
+        for i in range(len(results)):
+            assert len(results[i].fields) == len(expected_keys), f"results[{i}] has incorrect number of fields"
+            for k in expected_keys:
+                assert k in results[i].fields, f"results[{i}] is missing {k}"

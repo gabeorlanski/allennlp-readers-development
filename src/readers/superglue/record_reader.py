@@ -87,6 +87,7 @@ class RecordTaskReader(DatasetReader):
         self._query_len_limit = question_length_limit
         self._stride = stride
         self._raise_errors = raise_errors
+        self._cls_token = '@placeholder'
 
     @overrides
     def _read(self, file_path: Union[Path, str]) -> Iterable[Instance]:
@@ -444,7 +445,8 @@ class RecordTaskReader(DatasetReader):
                 token_answer_span[1] + start_of_context,
                 query_field,
             )
-        # make the context span, i.e., the span of text from which possible answers should be drawn
+        # make the context span, i.e., the span of text from which possible
+        # answers should be drawn
         fields["context_span"] = SpanField(
             start_of_context, start_of_context + len(tokenized_passage) - 1, query_field
         )
@@ -526,3 +528,15 @@ class RecordTaskReader(DatasetReader):
             current_answer += 1
 
         return out
+
+    def _find_cls_index(self, tokens: List[Token]) -> int:
+        """
+        From transformer_squad
+        Args:
+            self:
+            tokens:
+
+        Returns:
+
+        """
+        return next(i for i, t in enumerate(tokens) if t.text == self._cls_token)
