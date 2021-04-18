@@ -1,6 +1,5 @@
 import pytest
 from src.readers.superglue.record_reader import RecordTaskReader
-from tests import FIXTURES_ROOT
 from allennlp.data.tokenizers import WhitespaceTokenizer
 import re
 
@@ -16,11 +15,11 @@ class TestRecordReader:
         # Set the tokenizer to whitespace tokenization for ease of use and
         # testing. Easier to test than using a transformer tokenizer.
         reader = RecordTaskReader(
-            tokenizer=WhitespaceTokenizer(),
             length_limit=24,
             question_length_limit=8,
             stride=4
         )
+        reader._tokenizer = WhitespaceTokenizer()
         yield reader
 
     @pytest.fixture
@@ -166,6 +165,7 @@ class TestRecordReader:
             "metadata"
         ]
         for i in range(len(results)):
-            assert len(results[i].fields) == len(expected_keys), f"results[{i}] has incorrect number of fields"
+            assert len(results[i].fields) == len(
+                expected_keys), f"results[{i}] has incorrect number of fields"
             for k in expected_keys:
                 assert k in results[i].fields, f"results[{i}] is missing {k}"

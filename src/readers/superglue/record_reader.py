@@ -5,24 +5,18 @@ al. 2018).
 Reader Implemented by Gabriel Orlanski
 """
 
-from typing import Dict, List, Optional, Sequence, Iterable, Union, Tuple, Any
-import itertools
-import logging
-import warnings
+from typing import Dict, List, Optional, Iterable, Union, Tuple, Any
 from pathlib import Path
 
 from overrides import overrides
 from src.util.log_util import getBothLoggers
-from allennlp.common.util import sanitize_wordpiece
-from allennlp.common.checks import ConfigurationError
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
-from allennlp.data.dataset_readers.dataset_utils import to_bioul
-from allennlp.data.fields import MetadataField, TextField, SpanField, IndexField
+from allennlp.data.fields import MetadataField, TextField, SpanField
 from allennlp.data.instance import Instance
-from allennlp.data.token_indexers import TokenIndexer, SingleIdTokenIndexer
-from allennlp.data.tokenizers import Token, Tokenizer, SpacyTokenizer
-from allennlp_models.rc.dataset_readers.utils import char_span_to_token_span
+from allennlp.data.tokenizers import Token
+from allennlp.data.token_indexers import PretrainedTransformerIndexer
+from allennlp.data.tokenizers import Token, PretrainedTransformerTokenizer
 import json
 
 logger, _ = getBothLoggers()
@@ -68,21 +62,31 @@ class RecordTaskReader(DatasetReader):
 
     # TODO: Expand on init args and add correct tokenizers
     def __init__(self,
-                 tokenizer: Tokenizer = None,
-                 token_indexers: Dict[str, TokenIndexer] = None,
+                 transformer_model_name: str = "bert-base-cased",
                  length_limit: int = 384,
                  question_length_limit: int = 64,
                  stride: int = 128,
                  raise_errors: bool = False,
+                 tokenizer_kwargs: Dict[str, Any] = None,
                  **kwargs) -> None:
         """
         Initialize the RecordTaskReader.
         """
-        super(RecordTaskReader, self).__init__(**kwargs)
+        super(RecordTaskReader, self).__init__(
+            manual_distributed_sharding=True, **kwargs
+        )
 
         # Save the values passed to __init__ to protected attributes
-        self._tokenizer = tokenizer or SpacyTokenizer()
-        self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
+        self._tokenizer = PretrainedTransformerTokenizer(
+            transformer_model_name,
+            add_special_tokens=False,
+            tokenizer_kwargs=tokenizer_kwargs,
+        )
+        self._token_indexers = {
+            "tokens": PretrainedTransformerIndexer(
+                transformer_model_name, tokenizer_kwargs=tokenizer_kwargs
+            )
+        }
         self._length_limit = length_limit
         self._query_len_limit = question_length_limit
         self._stride = stride
