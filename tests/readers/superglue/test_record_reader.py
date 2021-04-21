@@ -8,6 +8,8 @@ Tests for the ReCoRD reader from SuperGLUE
 """
 
 
+# TODO: Add full integration tests
+
 class TestRecordReader:
 
     @pytest.fixture

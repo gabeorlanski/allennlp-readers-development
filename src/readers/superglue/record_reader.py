@@ -23,6 +23,7 @@ logger, _ = getBothLoggers()
 
 __all__ = ['RecordTaskReader']
 
+# TODO: Optimize this reader
 
 @DatasetReader.register("superglue_record")
 class RecordTaskReader(DatasetReader):
@@ -263,7 +264,7 @@ class RecordTaskReader(DatasetReader):
                         tokenized_query,
                         passage_text,
                         tokenized_context_window,
-                        answers=answers,
+                        answers=[answer['text'] for answer in answers],
                         token_answer_span=window_token_answer_span,
                         additional_metadata=additional_metadata,
                         always_add_answer_span=always_add_answer_span,
