@@ -1,4 +1,5 @@
-allennlp==1.5.0
+allennlp
+allennlp-models
 pytest
 flake8
 mypy==0.800

@@ -68,6 +68,7 @@ class RecordTaskReader(DatasetReader):
                  stride: int = 128,
                  raise_errors: bool = False,
                  tokenizer_kwargs: Dict[str, Any] = None,
+                 max_instances: int=None,
                  **kwargs) -> None:
         """
         Initialize the RecordTaskReader.
@@ -92,6 +93,7 @@ class RecordTaskReader(DatasetReader):
         self._stride = stride
         self._raise_errors = raise_errors
         self._cls_token = '@placeholder'
+        self._max_instances = max_instances
 
     @overrides
     def _read(self, file_path: Union[Path, str]) -> Iterable[Instance]:
@@ -134,7 +136,13 @@ class RecordTaskReader(DatasetReader):
             # Otherwise we increase by 0.
             examples_multiple_instance_count += 1 if instance_count > 1 else 0
 
-            passages_yielded += 1
+            passages_yielded += instance_count
+
+            # Check to see if we are over the max_instances to yield.
+            if self._max_instances and passages_yielded > self._max_instances:
+                logger.info(f"Passed max instances")
+                break
+
 
         # Log pertinent information.
         if passages_yielded:
