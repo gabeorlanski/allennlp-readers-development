@@ -2,7 +2,8 @@
   "dataset_reader": {
     "type": "superglue_record",
     "transformer_model_name": "bert-base-uncased",
-    "length_limit": 256
+    "length_limit": 256,
+    "max_instances": 50
   },
   "train_data_path": "data/record/train.json",
   "validation_data_path": "data/record/dev.json",
@@ -16,7 +17,7 @@
   "data_loader": {
     "batch_sampler": {
       "type": "bucket",
-      "batch_size": 4
+      "batch_size": 2
     }
   },
   "trainer": {
@@ -30,11 +31,12 @@
       "eps": 1e-8
     },
     "learning_rate_scheduler": {
-      "type": "reduce_on_plateau",
-      "patience": 5
+      "type": "slanted_triangular",
+      "num_epochs": 5,
+      "cut_frac": 0.1
     },
     "grad_clipping": 1.0,
-    "num_epochs": 10,
+    "num_epochs": 5,
     "validation_metric": "+per_instance_f1"
   },
   "random_seed": 100,
