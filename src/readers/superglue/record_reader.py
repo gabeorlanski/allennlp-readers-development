@@ -108,6 +108,11 @@ class RecordTaskReader(DatasetReader):
             dataset = json.load(fp)['data']
         logger.info(f"Found {len(dataset)} examples from '{file_path}'")
 
+        # TODO: Get rid of this
+        max_instances = self._max_instances
+        if max_instances and 'train' not in file_path:
+            max_instances = int(.1*max_instances)
+
         # Keep track of certain stats while reading the file
         # examples_multiple_instance_count: The number of questions with more than
         #   one instance. Can happen because there is multiple queries for a
@@ -141,7 +146,7 @@ class RecordTaskReader(DatasetReader):
             passages_yielded += instance_count
 
             # Check to see if we are over the max_instances to yield.
-            if self._max_instances and passages_yielded > self._max_instances:
+            if max_instances and max_instances > self._max_instances:
                 logger.info(f"Passed max instances")
                 break
 
