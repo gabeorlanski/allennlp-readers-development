@@ -18,8 +18,6 @@ from allennlp.data.tokenizers import Token
 from allennlp.data.token_indexers import PretrainedTransformerIndexer
 from allennlp.data.tokenizers import Token, PretrainedTransformerTokenizer
 import json
-import os
-os.environ["TOKENIZERS_PARALLELISM"] = "true"
 logger, _ = getBothLoggers()
 
 __all__ = ['RecordTaskReader']
@@ -146,7 +144,7 @@ class RecordTaskReader(DatasetReader):
             passages_yielded += instance_count
 
             # Check to see if we are over the max_instances to yield.
-            if max_instances and max_instances > self._max_instances:
+            if max_instances and passages_yielded > max_instances:
                 logger.info(f"Passed max instances")
                 break
 
