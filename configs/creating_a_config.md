@@ -65,7 +65,7 @@ config to complete the record config.
 
 5. To now run this model with `allennlp train` use the command:
 ```commandline
-allennlp train configs/record_reader.jsonnet -f -s model --include-package src.readers.superglue
+allennlp train configs/debug_record_reader.jsonnet -f -s model --include-package src.readers.superglue
 ```
 The first argument `configs/record_reader.jsonnet` points to the config file. The second two 
 arguments `-f -s model` are for saving the model to a directory. The `-s model` indicates the 

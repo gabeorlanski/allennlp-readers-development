@@ -18,7 +18,8 @@ from allennlp.data.tokenizers import Token
 from allennlp.data.token_indexers import PretrainedTransformerIndexer
 from allennlp.data.tokenizers import Token, PretrainedTransformerTokenizer
 import json
-
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 logger, _ = getBothLoggers()
 
 __all__ = ['RecordTaskReader']
