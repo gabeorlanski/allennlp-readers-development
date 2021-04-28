@@ -31,6 +31,8 @@
     },
     "learning_rate_scheduler": {
       "type": "reduce_on_plateau",
+      "verbose": true,
+      "min_lr": 5e-10,
       "patience": 5
     },
     "grad_clipping": 1.0,
