@@ -18,9 +18,11 @@ from allennlp.data.tokenizers import Token
 from allennlp.data.token_indexers import PretrainedTransformerIndexer
 from allennlp.data.tokenizers import Token, PretrainedTransformerTokenizer
 import json
+
 logger, _ = getBothLoggers()
 
 __all__ = ['RecordTaskReader']
+
 
 # TODO: Optimize this reader
 
@@ -68,7 +70,8 @@ class RecordTaskReader(DatasetReader):
                  stride: int = 128,
                  raise_errors: bool = False,
                  tokenizer_kwargs: Dict[str, Any] = None,
-                 max_instances: int=None,
+                 one_instance_per_query:bool=False,
+                 max_instances: int = None,
                  **kwargs) -> None:
         """
         Initialize the RecordTaskReader.
@@ -94,6 +97,7 @@ class RecordTaskReader(DatasetReader):
         self._raise_errors = raise_errors
         self._cls_token = '@placeholder'
         self._max_instances = max_instances
+        self._one_instance_per_query= one_instance_per_query
 
     @overrides
     def _read(self, file_path: Union[Path, str]) -> Iterable[Instance]:
@@ -109,7 +113,7 @@ class RecordTaskReader(DatasetReader):
         # TODO: Get rid of this
         max_instances = self._max_instances
         if max_instances and 'train' not in file_path:
-            max_instances = int(.1*max_instances)
+            max_instances = int(.1 * max_instances)
         if max_instances:
             logger.info(f"{max_instances} maximum instances will be returned")
 
@@ -154,7 +158,6 @@ class RecordTaskReader(DatasetReader):
             if max_instances and passages_yielded > max_instances:
                 logger.info(f"Passed max instances")
                 break
-
 
         # Log pertinent information.
         if passages_yielded:
@@ -215,7 +218,7 @@ class RecordTaskReader(DatasetReader):
                 "id"        : query['id'],
                 "example_id": example_id,
             }
-
+            instances_yielded = 0
             # Tokenize, and truncate, the query based on the max set in
             # `__init__`
             tokenized_query = self.tokenize_str(query['query'])[:self._query_len_limit]
@@ -284,6 +287,10 @@ class RecordTaskReader(DatasetReader):
                         always_add_answer_span=always_add_answer_span,
                     )
                     yield instance
+                    instances_yielded+= 1
+
+                if instances_yielded == 1 and self._one_instance_per_query:
+                    break
 
                 stride_start += space_for_context
 
@@ -527,7 +534,7 @@ class RecordTaskReader(DatasetReader):
             found_answer = False
             while token_index < len(tokenized_passage):
 
-                if tokenized_passage[token_index] == tokenized_answer[0]:
+                if self._str_compare_tokens(tokenized_passage[token_index], tokenized_answer[0]):
                     valid_answer = True
                     for i in range(1, len(tokenized_answer)):
 
@@ -535,7 +542,8 @@ class RecordTaskReader(DatasetReader):
                         # or the answer and the current token no longer match.
                         if (
                                 token_index + i > len(tokenized_passage)
-                                or tokenized_passage[token_index + i] != tokenized_answer[i]
+                                or not self._str_compare_tokens(tokenized_passage[token_index + i],
+                                                                tokenized_answer[i])
                         ):
                             valid_answer = False
                             break
@@ -567,3 +575,7 @@ class RecordTaskReader(DatasetReader):
 
         """
         return next(i for i, t in enumerate(tokens) if t.text == self._cls_token)
+
+    @staticmethod
+    def _str_compare_tokens(a: Token, b: Token):
+        return str(a) == str(b)
