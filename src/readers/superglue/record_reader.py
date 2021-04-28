@@ -110,6 +110,8 @@ class RecordTaskReader(DatasetReader):
         max_instances = self._max_instances
         if max_instances and 'train' not in file_path:
             max_instances = int(.1*max_instances)
+        if max_instances:
+            logger.info(f"{max_instances} maximum instances will be returned")
 
         # Keep track of certain stats while reading the file
         # examples_multiple_instance_count: The number of questions with more than
@@ -117,6 +119,7 @@ class RecordTaskReader(DatasetReader):
         #   single passage.
         # passages_yielded: The total number of instances found/yielded.
         examples_multiple_instance_count = 0
+        examples_no_instance_count = 0
         passages_yielded = 0
 
         # Iterate through every example from the ReCoRD data file.
@@ -136,6 +139,10 @@ class RecordTaskReader(DatasetReader):
                 yield instance
                 instance_count += 1
 
+            if instance_count == 0:
+                logger.warning(f"Example '{example['id']}' had no instances.")
+                examples_no_instance_count += 1
+
             # Check if there was more than one instance for this example. If
             # there was we increase examples_multiple_instance_count by 1.
             # Otherwise we increase by 0.
@@ -154,6 +161,9 @@ class RecordTaskReader(DatasetReader):
             logger.info(f"{examples_multiple_instance_count}/{passages_yielded} "
                         f"({examples_multiple_instance_count / passages_yielded * 100:.2f}%) "
                         f"examples had more than one instance")
+            logger.info(f"{examples_no_instance_count}/{passages_yielded} "
+                        f"({examples_no_instance_count / passages_yielded * 100:.2f}%) "
+                        f"examples had no instances")
         else:
             logger.warning(f"Could not find any instances in '{file_path}'")
 
