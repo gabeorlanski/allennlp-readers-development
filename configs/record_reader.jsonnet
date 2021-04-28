@@ -14,6 +14,8 @@
     "transformer_model_name": "bert-base-uncased"
   },
   "data_loader": {
+    "type": "multiprocess",
+    "num_workers": 4,
     "batch_sampler": {
       "type": "bucket",
       "batch_size": 4
