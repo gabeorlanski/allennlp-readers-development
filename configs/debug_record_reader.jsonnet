@@ -30,12 +30,10 @@
       "lr": 2e-5,
       "eps": 1e-8
     },
-
     "learning_rate_scheduler": {
-      "type": "reduce_on_plateau",
-      "verbose": true,
-      "min_lr": 5e-10,
-      "patience": 5
+      "type": "slanted_triangular",
+      "num_epochs": 5,
+      "cut_frac": 0.1
     },
     "grad_clipping": 1.0,
     "num_epochs": 5,
