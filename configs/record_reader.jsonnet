@@ -16,7 +16,8 @@
   "data_loader": {
     "batch_sampler": {
       "type": "bucket",
-      "batch_size": 4
+      "batch_size": 4,
+      "sorting_keys": "question_with_context"
     }
   },
   "trainer": {
@@ -29,13 +30,16 @@
       "lr": 2e-5,
       "eps": 1e-8
     },
+    "num_epochs": 20,
+    "grad_norm": 5.0,
+    "patience": 10,
     "learning_rate_scheduler": {
-      "type": "slanted_triangular",
-      "num_epochs": 5,
-      "cut_frac": 0.1
+      "type": "reduce_on_plateau",
+      "factor": 0.5,
+      "mode": "max",
+      "patience": 2
     },
     "grad_clipping": 1.0,
-    "num_epochs": 10,
     "validation_metric": "+per_instance_f1"
   },
   "random_seed": 100,
