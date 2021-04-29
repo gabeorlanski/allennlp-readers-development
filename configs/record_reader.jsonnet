@@ -17,7 +17,7 @@
     "batch_sampler": {
       "type": "bucket",
       "batch_size": 4,
-      "sorting_keys": "question_with_context"
+      "sorting_keys": ["question_with_context"]
     }
   },
   "trainer": {
