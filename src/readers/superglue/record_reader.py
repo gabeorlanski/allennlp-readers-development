@@ -265,7 +265,7 @@ class RecordTaskReader(DatasetReader):
                     answer_token_start - stride_start,
                     answer_token_end - stride_start,
                 )
-                if any(i < 0 or i >= len(tokenized_context_window) for i in
+                if any(i < 0 or i > len(tokenized_context_window) for i in
                        window_token_answer_span):
                     # The answer is not contained in the window.
                     window_token_answer_span = None

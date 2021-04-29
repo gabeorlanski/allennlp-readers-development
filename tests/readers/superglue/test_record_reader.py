@@ -2,7 +2,7 @@ import pytest
 from src.readers.superglue.record_reader import RecordTaskReader
 from allennlp.data.tokenizers import WhitespaceTokenizer
 import re
-
+from typing import List
 """
 Tests for the ReCoRD reader from SuperGLUE
 """
@@ -157,31 +157,40 @@ class TestRecordReader:
         Another example that was not returning instances
         """
         return {
-            'id': '6f1ca8baf24bf9e5fc8e33b4b3b04bd54370b25f', 'source': 'Daily mail', 'passage': {
-            'text'    : "They're both famous singers who have lent their powerful voices to James "
-                        "Bond films. And it seems the Oscars' stage wasn't big enough to "
-                        "accommodate larger-and-life divas Adele and Dame Shirley Bassey, "
-                        "at least at the same time. Instead of the two songstresses dueting or "
-                        "sharing the stage, each performed her theme song separately during "
-                        "Sunday night's ceremony. Scroll down for video Battle of the divas: "
-                        "Adele and Dame Shirley Bassey separately sang James Bond theme songs "
-                        "during Sunday night's Oscar ceremony Shirley performed first, "
-                        "singing Goldfinger nearly 50 years since she first recorded the song for "
-                        "the 1964 Bond film of the same name.\n@highlight\nAdele awarded Oscar "
-                        "for Best Original Score for Skyfall",
-            'entities': [{'start': 67, 'end': 76}, {'start': 102, 'end': 107},
-                         {'start': 171, 'end': 175}, {'start': 181, 'end': 199},
-                         {'start': 407, 'end': 411}, {'start': 417, 'end': 435},
-                         {'start': 453, 'end': 462}, {'start': 498, 'end': 502},
-                         {'start': 513, 'end': 519}, {'start': 546, 'end': 555},
-                         {'start': 620, 'end': 623}, {'start': 659, 'end': 663},
-                         {'start': 673, 'end': 701}, {'start': 707, 'end': 713}]
-        }, 'qas': [{
-                       'id'     : '6f1ca8baf24bf9e5fc8e33b4b3b04bd54370b25f-98823006424cc595642b5ae5fa1b533bbd215a56-105',
-                       'query'  : 'The full works: Adele was accompanied by an orchestra, choir and light display during her performance of @placeholder',
-                       'answers': [{'start': 707, 'end': 713, 'text': 'Skyfall'}]
-                   }]
+            'id'     : '6f1ca8baf24bf9e5fc8e33b4b3b04bd54370b25f', 'source': 'Daily mail',
+            'passage': {
+                'text'    : "They're both famous singers who have lent their powerful voices to "
+                            "James "
+                            "Bond films. And it seems the Oscars' stage wasn't big enough to "
+                            "accommodate larger-and-life divas Adele and Dame Shirley Bassey, "
+                            "at least at the same time. Instead of the two songstresses dueting or "
+                            "sharing the stage, each performed her theme song separately during "
+                            "Sunday night's ceremony. Scroll down for video Battle of the divas: "
+                            "Adele and Dame Shirley Bassey separately sang James Bond theme songs "
+                            "during Sunday night's Oscar ceremony Shirley performed first, "
+                            "singing Goldfinger nearly 50 years since she first recorded the song "
+                            "for "
+                            "the 1964 Bond film of the same name.\n@highlight\nAdele awarded Oscar "
+                            "for Best Original Score for Skyfall",
+                'entities': [{'start': 67, 'end': 76}, {'start': 102, 'end': 107},
+                             {'start': 171, 'end': 175}, {'start': 181, 'end': 199},
+                             {'start': 407, 'end': 411}, {'start': 417, 'end': 435},
+                             {'start': 453, 'end': 462}, {'start': 498, 'end': 502},
+                             {'start': 513, 'end': 519}, {'start': 546, 'end': 555},
+                             {'start': 620, 'end': 623}, {'start': 659, 'end': 663},
+                             {'start': 673, 'end': 701}, {'start': 707, 'end': 713}]
+            }, 'qas' : [{
+                'id'     : '6f1ca8baf24bf9e5fc8e33b4b3b04bd54370b25f'
+                           '-98823006424cc595642b5ae5fa1b533bbd215a56-105',
+                'query'  : 'The full works: Adele was accompanied by an orchestra, choir and '
+                           'light display during her performance of @placeholder',
+                'answers': [{'start': 707, 'end': 713, 'text': 'Skyfall'}]
+            }]
         }
+
+    @staticmethod
+    def _tokenListToStr(tokens)->List[str]:
+        return list(map(str,tokens))
 
     #####################################################################
     # Unittests                                                         #
@@ -284,3 +293,11 @@ class TestRecordReader:
         )
         assert len(offsets) == 1
         assert offsets[0] == (217, 221)
+
+    def test_get_instances_from_example_skyfall(self, reader, skyfall_example):
+        tokenized_answer = self._tokenListToStr(reader.tokenize_str('Skyfall'))
+
+        results = list(reader.get_instances_from_example(skyfall_example))
+
+        assert len(results) == 1
+        assert self._tokenListToStr(results[0]['question_with_context'][-3:-1]) == tokenized_answer

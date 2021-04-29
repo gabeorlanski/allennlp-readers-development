@@ -1,7 +1,7 @@
 {
   "dataset_reader": {
     "type": "superglue_record",
-    "transformer_model_name": "bert-base-uncased",
+    "transformer_model_name": "roberta-base",
     "length_limit": 256
   },
   "train_data_path": "data/record/train.json",
@@ -31,15 +31,13 @@
       "eps": 1e-8
     },
     "num_epochs": 20,
-    "grad_norm": 5.0,
-    "patience": 10,
+    "patience": 3,
     "learning_rate_scheduler": {
       "type": "reduce_on_plateau",
       "factor": 0.5,
       "mode": "max",
       "patience": 2
     },
-    "grad_clipping": 1.0,
     "validation_metric": "+per_instance_f1"
   },
   "random_seed": 100,
