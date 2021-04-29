@@ -7,7 +7,7 @@ Reader Implemented by Gabriel Orlanski
 
 from typing import Dict, List, Optional, Iterable, Union, Tuple, Any
 from pathlib import Path
-
+from allennlp.common.util import sanitize_wordpiece
 from overrides import overrides
 from src.util.log_util import getBothLoggers
 from allennlp.common.file_utils import cached_path
@@ -265,7 +265,7 @@ class RecordTaskReader(DatasetReader):
                     answer_token_start - stride_start,
                     answer_token_end - stride_start,
                 )
-                if any(i < 0 or i > len(tokenized_context_window) for i in
+                if any(i < 0 or i >= len(tokenized_context_window) for i in
                        window_token_answer_span):
                     # The answer is not contained in the window.
                     window_token_answer_span = None
@@ -578,4 +578,4 @@ class RecordTaskReader(DatasetReader):
 
     @staticmethod
     def _str_compare_tokens(a: Token, b: Token):
-        return str(a) == str(b)
+        return sanitize_wordpiece(a.text) == sanitize_wordpiece(b.text)

@@ -3,6 +3,7 @@ from src.readers.superglue.record_reader import RecordTaskReader
 from allennlp.data.tokenizers import WhitespaceTokenizer
 import re
 from typing import List
+
 """
 Tests for the ReCoRD reader from SuperGLUE
 """
@@ -189,8 +190,8 @@ class TestRecordReader:
         }
 
     @staticmethod
-    def _tokenListToStr(tokens)->List[str]:
-        return list(map(str,tokens))
+    def _tokenListToStr(tokens) -> List[str]:
+        return list(map(str, tokens))
 
     #####################################################################
     # Unittests                                                         #
@@ -295,9 +296,25 @@ class TestRecordReader:
         assert offsets[0] == (217, 221)
 
     def test_get_instances_from_example_skyfall(self, reader, skyfall_example):
+        """
+        This will fail for the time being.
+        """
         tokenized_answer = self._tokenListToStr(reader.tokenize_str('Skyfall'))
 
         results = list(reader.get_instances_from_example(skyfall_example))
 
         assert len(results) == 1
         assert self._tokenListToStr(results[0]['question_with_context'][-3:-1]) == tokenized_answer
+
+
+    def test_get_answer_offsets_roberta(self, curiosity_example):
+        RecordTaskReader(
+            transformer_model_name='roberta-base',
+            length_limit=256
+        )
+        offsets = reader.get_answer_offsets(reader.tokenize_str(
+            curiosity_example['passage']['text']),
+            curiosity_example['qas'][0]['answers']
+        )
+        assert len(offsets) == 1
+        assert offsets[0] == (217, 221)

@@ -23,15 +23,13 @@
   "trainer": {
     "optimizer": {
       "type": "huggingface_adamw",
-      "weight_decay": 0.0,
       "parameter_groups": [
-        [["bias", "LayerNorm\\.weight", "layer_norm\\.weight"], {"weight_decay": 0}]
+        [["bias", "LayerNorm\\.weight", "layer_norm\\.weight"], {"weight_decay": 0.1}]
       ],
       "lr": 2e-5,
       "eps": 1e-8
     },
     "num_epochs": 20,
-    "grad_norm": 5.0,
     "patience": 3,
     "learning_rate_scheduler": {
       "type": "reduce_on_plateau",
@@ -39,7 +37,6 @@
       "mode": "max",
       "patience": 2
     },
-    "grad_clipping": 1.0,
     "validation_metric": "+per_instance_f1"
   },
   "random_seed": 100,
