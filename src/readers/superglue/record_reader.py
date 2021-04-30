@@ -15,6 +15,7 @@ from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import MetadataField, TextField, SpanField
 from allennlp.data.instance import Instance
 from allennlp.data.tokenizers import Token
+from allennlp_models.rc.dataset_readers.utils import char_span_to_token_span
 from allennlp.data.token_indexers import PretrainedTransformerIndexer
 from allennlp.data.tokenizers import Token, PretrainedTransformerTokenizer
 import json
@@ -70,7 +71,7 @@ class RecordTaskReader(DatasetReader):
                  stride: int = 128,
                  raise_errors: bool = False,
                  tokenizer_kwargs: Dict[str, Any] = None,
-                 one_instance_per_query:bool=False,
+                 one_instance_per_query: bool = False,
                  max_instances: int = None,
                  **kwargs) -> None:
         """
@@ -97,7 +98,7 @@ class RecordTaskReader(DatasetReader):
         self._raise_errors = raise_errors
         self._cls_token = '@placeholder'
         self._max_instances = max_instances
-        self._one_instance_per_query= one_instance_per_query
+        self._one_instance_per_query = one_instance_per_query
 
     @overrides
     def _read(self, file_path: Union[Path, str]) -> Iterable[Instance]:
@@ -246,9 +247,25 @@ class RecordTaskReader(DatasetReader):
                 logger.warning(f"Skipping {query['id']}, no answers")
                 continue
 
+            # Create the arguments needed for `char_span_to_token_span`
+            token_offsets = [
+                (t.idx, t.idx + len(sanitize_wordpiece(t.text)))
+                if t.idx is not None else None
+                for t in tokenized_passage
+            ]
+
             # Get the token offsets for the answers for this current passage.
             answer_token_start, answer_token_end = (-1, -1)
-            for offsets in self.get_answer_offsets(tokenized_passage, answers):
+            for answer in answers:
+
+                # Try to find the offsets.
+                offsets, _ = char_span_to_token_span(
+                    token_offsets,
+                    (answer['start'], answer['end'])
+                )
+
+                # If offsets for an answer were found, it means the answer is in
+                # the passage, and thus we can stop looking.
                 if offsets != (-1, -1):
                     answer_token_start, answer_token_end = offsets
                     break
@@ -287,7 +304,7 @@ class RecordTaskReader(DatasetReader):
                         always_add_answer_span=always_add_answer_span,
                     )
                     yield instance
-                    instances_yielded+= 1
+                    instances_yielded += 1
 
                 if instances_yielded == 1 and self._one_instance_per_query:
                     break
@@ -303,8 +320,8 @@ class RecordTaskReader(DatasetReader):
 
     def tokenize_slice(self,
                        text: str,
-                       start: int,
-                       end: int) -> Iterable[Token]:
+                       start: int = None,
+                       end: int = None) -> Iterable[Token]:
         """
         Get + tokenize a span from a source text.
 
@@ -321,6 +338,8 @@ class RecordTaskReader(DatasetReader):
         Returns: `Iterable[Token]`
             List of tokens for the retrieved span.
         """
+        start = start or 0
+        end = end or len(text)
         text_to_tokenize = text[start:end]
 
         # Check if this is the start of the text. If the start is >= 0, check
@@ -368,7 +387,6 @@ class RecordTaskReader(DatasetReader):
             The resulting tokens.
 
         """
-
         # We need to keep track of the current token index so that we can update
         # the results from self.tokenize_slice such that they reflect their
         # actual position in the string rather than their position in the slice
@@ -498,71 +516,6 @@ class RecordTaskReader(DatasetReader):
         fields["metadata"] = MetadataField(metadata)
 
         return Instance(fields)
-
-    # TODO: Optimize because python while loops are SLOW
-    def get_answer_offsets(self,
-                           tokenized_passage: List[Token],
-                           answers: List[Dict]) -> List[Tuple[int, int]]:
-        out = []
-
-        # Answers are ordered by which shows up first in the text (I hope).
-        # Therefore, we keep track of what token we are on to avoid
-        # checking the same tokens more than once.
-        current_token_index = 0
-        current_answer = 0
-
-        while current_answer < len(answers):
-            answer: Dict = answers[current_answer]
-
-            # We tokenize the actual answer text. This is then used
-            # immediately to help locate its start and end indices in
-            # the tokenized passage. While ReCoRD does provide a start
-            # and end index, it is only for the string itself rather
-            # than the tokens
-            tokenized_answer = self.tokenize_str(answer['text'])
-
-            # Set a separate tracker for the current index.
-            token_index = current_token_index
-
-            # Rather than having this in the main check, have it as a sub loop
-            # so that we can still add the -1 indices if the answers could not
-            # be found. Does produce an issue where one malformed answer causes
-            # the rest to be skipped. That is where `token_index` comes in. W/ a
-            # separate tracker, we can pass on updating `current_token_index` if
-            # we could not find the answer. This allows us to combat malformed
-            # answers.
-            found_answer = False
-            while token_index < len(tokenized_passage):
-
-                if self._str_compare_tokens(tokenized_passage[token_index], tokenized_answer[0]):
-                    valid_answer = True
-                    for i in range(1, len(tokenized_answer)):
-
-                        # If there are no more tokens left in the passage,
-                        # or the answer and the current token no longer match.
-                        if (
-                                token_index + i > len(tokenized_passage)
-                                or not self._str_compare_tokens(tokenized_passage[token_index + i],
-                                                                tokenized_answer[i])
-                        ):
-                            valid_answer = False
-                            break
-                    if valid_answer:
-                        token_index += len(tokenized_answer)
-                        found_answer = True
-                        break
-                token_index += 1
-
-            # We found an answer, add it to the output.
-            if found_answer:
-                current_token_index = token_index + 1
-                out.append((token_index - len(tokenized_answer), token_index))
-            else:
-                out.append((-1, -1))
-
-            current_answer += 1
-
-        return out
 
     def _find_cls_index(self, tokens: List[Token]) -> int:
         """

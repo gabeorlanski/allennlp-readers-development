@@ -1,6 +1,7 @@
 import pytest
 from src.readers.superglue.record_reader import RecordTaskReader
 from allennlp.data.tokenizers import WhitespaceTokenizer
+from allennlp.data.token_indexers import SingleIdTokenIndexer
 import re
 from typing import List
 
@@ -20,14 +21,20 @@ class TestRecordReader:
         )
 
     @pytest.fixture
-    def whitespace_reader(self, reader):
-        # Set the tokenizer to whitespace tokenization for ease of use and
-        # testing. Easier to test than using a transformer tokenizer.
-        reader._tokenizer = WhitespaceTokenizer()
+    def small_reader(self,reader):
+        # Some tests need the transformer tokenizer, but not the long lengths.
+        # Nice Middle ground.
         reader._length_limit = 24
         reader._query_len_limit = 8
         reader._stride = 4
-        yield reader
+        return reader
+    @pytest.fixture
+    def whitespace_reader(self,small_reader):
+        # Set the tokenizer to whitespace tokenization for ease of use and
+        # testing. Easier to test than using a transformer tokenizer.
+        small_reader._tokenizer = WhitespaceTokenizer()
+        small_reader._token_indexers = SingleIdTokenIndexer()
+        yield small_reader
 
     @pytest.fixture
     def passage(self):
@@ -228,32 +235,26 @@ class TestRecordReader:
         for i in range(len(result)):
             assert str(result[i]) == expected[i]
 
-    def test_get_answer_offsets(self, whitespace_reader, tokenized_passage, answers):
-        results = whitespace_reader.get_answer_offsets(tokenized_passage, answers)
-
-        assert len(results) == 3
-        assert results[0] == (7, 8)
-        assert [t.text for t in tokenized_passage[results[0][0]:results[0][1]]] == [
-            'ReCoRD']
-        assert results[1] == (17, 19)
-        assert [t.text for t in tokenized_passage[results[1][0]:results[1][1]]] == [
-            'commonsense', 'reasoning']
-        assert results[2] == (-1, -1)
-
-    def test_get_instances_from_example(self, whitespace_reader, tokenized_passage, example_basic):
+    def test_get_instances_from_example(self, small_reader, tokenized_passage, example_basic):
         # TODO: Make better
-        result = list(whitespace_reader.get_instances_from_example(example_basic))
+        result = list(small_reader.get_instances_from_example(example_basic))
 
+        result_text =  ' '.join([t.text for t in result[0]['question_with_context'].tokens])
         assert len(result) == 2
-        assert len(result[0]['question_with_context'].tokens) == whitespace_reader._length_limit
-        assert '@placeholder' in [t.text for t in result[0]['question_with_context'].tokens]
+        assert len(result[0]['question_with_context'].tokens) == small_reader._length_limit
+        assert '@' in result_text
+        assert 'place' in result_text
+        assert 'holder' in result_text
 
-        assert len(result[1]['question_with_context']) == whitespace_reader._length_limit
-        assert '@placeholder' in [t.text for t in result[1]['question_with_context'].tokens]
+        result_text = ' '.join([t.text for t in result[1]['question_with_context'].tokens])
+        assert len(result[1]['question_with_context']) == small_reader._length_limit
+        assert '@' in result_text
+        assert 'place' in result_text
+        assert 'holder' not in result_text
 
-    def test_get_instances_from_example_fields(self, whitespace_reader, tokenized_passage,
+    def test_get_instances_from_example_fields(self, small_reader, tokenized_passage,
                                                example_basic):
-        results = list(whitespace_reader.get_instances_from_example(example_basic))
+        results = list(small_reader.get_instances_from_example(example_basic))
         expected_keys = [
             "question_with_context",
             "context_span",
@@ -287,14 +288,6 @@ class TestRecordReader:
         assert len(results) == 1
         assert tokenized_answer in ' '.join(map(str, results[0]['question_with_context'].tokens))
 
-    def test_get_answer_offsets_curiosity(self, reader, curiosity_example):
-        offsets = reader.get_answer_offsets(reader.tokenize_str(
-            curiosity_example['passage']['text']),
-            curiosity_example['qas'][0]['answers']
-        )
-        assert len(offsets) == 1
-        assert offsets[0] == (217, 221)
-
     def test_get_instances_from_example_skyfall(self, reader, skyfall_example):
         """
         This will fail for the time being.
@@ -306,15 +299,12 @@ class TestRecordReader:
         assert len(results) == 1
         assert self._tokenListToStr(results[0]['question_with_context'][-3:-1]) == tokenized_answer
 
-
-    def test_get_answer_offsets_roberta(self, curiosity_example):
-        RecordTaskReader(
+    def test_tokenize_str_roberta(self):
+        reader = RecordTaskReader(
             transformer_model_name='roberta-base',
             length_limit=256
         )
-        offsets = reader.get_answer_offsets(reader.tokenize_str(
-            curiosity_example['passage']['text']),
-            curiosity_example['qas'][0]['answers']
-        )
-        assert len(offsets) == 1
-        assert offsets[0] == (217, 221)
+        result = reader.tokenize_str("The new rover.")
+        result = list(map(lambda t: t.text[1:], result))
+        assert len(result) == 4
+        assert result == ["he", "new", "rover", ""]
