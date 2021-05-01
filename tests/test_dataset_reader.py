@@ -1,4 +1,4 @@
-from my_project.dataset_reader import ClassificationTsvReader
+from src.dataset_reader import ClassificationTsvReader
 
 
 class TestTextClassificationJsonReader:
